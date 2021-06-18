@@ -1,0 +1,355 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "accelerator": "GPU",
+    "colab": {
+      "name": "BA865 - HW03.ipynb",
+      "provenance": [],
+      "collapsed_sections": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "codemirror_mode": {
+        "name": "ipython",
+        "version": 3
+      },
+      "file_extension": ".py",
+      "mimetype": "text/x-python",
+      "name": "python",
+      "nbconvert_exporter": "python",
+      "pygments_lexer": "ipython3",
+      "version": "3.7.3"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "fDEQjuu_iJ3g"
+      },
+      "source": [
+        "# HW 03 - Create a word2vec model"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "bRrPQL2diJ3j"
+      },
+      "source": [
+        "<font color=blue size=4>\n",
+        "Before you submit this assignment, please carefully read these submission instructions. You must name this .ipynb file:\n",
+        "<br><br>\n",
+        "yourlastname_yourfirstname_HW3.ipynb\n",
+        "<br><br>\n",
+        "You must turn in this assignment by uploading the \n",
+        ".ipynb file to the assignment on questrom tools. You will also need to print out a hard copy of this notebook (File->Print from colab) with the output from running all the code cells, and hand it in on the class following the due date. Do not email me the file.\n",
+        "<br><br>\n",
+        "Points will be deducted for improper submission!\n",
+        "</font>\n",
+        "\n",
+        "For this assignment, we will use Pytorch to create a word2vec model that infers numerical vectors for words that capture their meaning. Word2vec was first introduced in 2013 by Mikolov et al. at Google. Their paper can be found [here](https://arxiv.org/pdf/1301.3781.pdf), though you do not need to read and understand it in order to implement the model. It is a very popular machine learning model that has been implemented to capture the meaning of text for many real world cases. \n",
+        "\n",
+        "This [blog post](https://blog.acolyer.org/2016/04/21/the-amazing-power-of-word-vectors/) is a great overview of word2vec. Please read it carefully before you create the word2vec model for this assignment. Specifically, you will build a \"Continuous Bag-of-Words Model (CBOW)\" word2vec model. CBOW predicts a focal (target) word from its context (the words surround it). The following Youtube videos also explain the concept of the CBOW model.\n",
+        "- https://www.youtube.com/watch?v=UqRCEmrv1gQ\n",
+        "- https://www.youtube.com/watch?v=gQddtTdmG_8 \n",
+        "\n",
+        "\n",
+        "<img src=\"https://i2.wp.com/www.stokastik.in/wp-content/uploads/2017/04/Screen-Shot-2017-05-16-at-8.48.52-PM.png?w=596\">\n",
+        "\n",
+        "[CBOW structure from http://www.stokastik.in/understanding-word-vectors-and-word2vec/]"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "rayw7XfBiJ3u"
+      },
+      "source": [
+        "Your task is to create a CBOW neural network model class called `CBOW`. `CBOW` has the structure shown above and the following properties:\n",
+        "\n",
+        "- `vocab_size` - Size of vocabulary($V$). Note that vocabulary is a set of unique words in a corpus (a bunch of text documents).\n",
+        "- `embed_dim` - Dimension of the embedding vector\n",
+        "- `window_size` - Size of window. If a focal word is at position $t$, then the CBOW model uses embedding vectors of words between ($t$-window_size) and ($t$+window_size) to predict the focal word\n",
+        "- `hidden_dim` - Dimension of the hidden layer ($N$)\n",
+        "\n",
+        "`CBOW` consists of three layers:\n",
+        "\n",
+        "- `embedding` - An embedding layer that is initialized with `torch.nn.Embedding`\n",
+        "- `fc1` - A linear transformation that connects the embedding layer to the hidden layer. `torch.nn.functional.relu` activation should be applied to the output of `fc1`.\n",
+        "- `fc2` - A linear transformation that connects the activation of `fc1` to a tensor of length `vocab_size`. \n",
+        "\n",
+        "The training data (i.e., the features `X`, the labels `y`) that we will use to train the `CBOW` model will be:\n",
+        "- `X` will be a tensor of length (2 * `window_size`) containing the indices of all words in the window before and after the focal word. \n",
+        "- `y`, (the label that our model is trying to predict) should be a list containing the index of the focal word.\n",
+        "\n",
+        "Note that a single review in our data will produce multiple items of training data. For example, suppose a single review is:\n",
+        "\n",
+        " \"the food was not good at all\"\n",
+        " \n",
+        " If our `window_size` = 2, then this would generate the following (context, focal_word) training data tuples:\n",
+        "\n",
+        "```python\n",
+        "(['the','food','not','good'], ['was']) # 'was' is the focal word\n",
+        "(['food','was','good','at'], ['not']) # 'not' is the focal word\n",
+        "(['was','not','at','all'],['good']) # 'good' is the focal word\n",
+        "```\n",
+        "\n",
+        "However, we can't directly use these tuples to train our model. First we have to replace each word with a unique integer (its index) and then convert these to pytorch tensors. Note that, we will be using a special embedding layer (`torch.nn.Embedding`) which will convert these indexes to the one-hot vectors that are described in the videos.\n",
+        "\n",
+        "To get tensors from the original data, you will need to:\n",
+        "\n",
+        "- Create a list (or `set`) of all unique words in the cleaned text, called `vocab`.\n",
+        "- Create a dictionary called `word_to_index` where the key is a word and the value is the index of a word (a unique number for each word). You will have to figure out how to create this dictionary from the cleaned dataset.\n",
+        "- Write a function `make_cbow_data` that accepts a single review from cleaned_text as an input and outputs a **list of tuples** where:\n",
+        " -  the first part of the tuple contains a tensor of the indices of words in the window before and after each focal word\n",
+        " - the second part of the tuple is a tensor containing the index of the focal word.\n",
+        " - The dtype of both tensors in the tuple should be `torch.long`.\n",
+        " - You will have to figure out how to create multiple tuples of tensors from a single review (an item from `cleaned_text`) using loops \n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "P6uzFDXFiJ3v"
+      },
+      "source": [
+        "We will use restaurant customer reviews data for this assignment.\n",
+        "\n",
+        "**Do not change the code block below**. Below is a function that cleans up the text of a review and returns a list of all the words in the review.\n",
+        "\n",
+        "You will use `cleaned_text`, which is defined below, to create a training dataset for your `CBOW` model."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab_type": "code",
+        "id": "SYTmVZStiJ3w",
+        "colab": {}
+      },
+      "source": [
+        "# DO NOT CHANGE THIS CODEBLOCK\n",
+        "import pandas as pd\n",
+        "import string\n",
+        "\n",
+        "def clean_text(text):    \n",
+        "    x = text.translate(str.maketrans('', '', string.punctuation)) # remove punctuation\n",
+        "    x = x.lower().split() # lower case and split by whitespace to differentiate words\n",
+        "    return x\n",
+        "\n",
+        "example_text = pd.read_csv('https://raw.githubusercontent.com/dylanwalker/BA865/master/datasets/hw3.csv')\n",
+        "cleaned_text = example_text.Review[:100].apply(clean_text)"
+      ],
+      "execution_count": 0,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "HEl72ZkpTaQ-"
+      },
+      "source": [
+        "## Create a CBOW Class"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "WpUT3gC6P3Dh",
+        "colab_type": "text"
+      },
+      "source": [
+        "The first step is to create `vocab` and `word_to_index` according to the instructions above."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab_type": "code",
+        "id": "4QQycg3vFhf8",
+        "colab": {}
+      },
+      "source": [
+        "#Create your vocab here\n",
+        "\n",
+        "#Create your word_to_index dictionary here\n"
+      ],
+      "execution_count": 0,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "4HrIIKHqP_OM",
+        "colab_type": "text"
+      },
+      "source": [
+        "Now define your `make_cbow_data()` function. It should take `text` (text of a single review) as an argument, and `window_size` (the number of words to the left or right of the focal word) as an argument. It may also take other arguments, depending on how you define it. It should return a list of tuples as described above."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "wVScRx78hQQh",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "# Define your make_cbow_data function here (it should accept arguments: text, window_size  -- and possibly other arguments depending on how you define it)"
+      ],
+      "execution_count": 0,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "_6kWcdS4QZzM",
+        "colab_type": "text"
+      },
+      "source": [
+        "Now define your CBOW model class."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "V-sMXIE6heYv",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "# Define your CBOW model here"
+      ],
+      "execution_count": 0,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "M1gYhtWBx88h"
+      },
+      "source": [
+        "## Train the CBOW model"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "LuWSX_ZGnPIG"
+      },
+      "source": [
+        "Now that your model class is written, you must create an instance of the model and train it using the loss function `torch.nn.CrossEntropyLoss` on the output of `fc2` and `y` (the labels).\n",
+        "\n",
+        "Train your CBOW model for 300 epochs with `embed_dim`= 100, `window_size`=2, and `hidden_dim`=30. \n",
+        "- Do not split the data into training and test sets (we will not be evaluating the performance of this model). \n",
+        "- Use the SGD optimizer with learning rate = 0.001.\n",
+        "- Append the loss at every epoch to a list (return the list if you use a function to fit your model), so that we can plot it later. "
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "35ybUlZs14Ud",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "# Parameters\n",
+        "VOCAB_SIZE = len(vocab)\n",
+        "EMBED_DIM = 100\n",
+        "WINDOW_SIZE = 2\n",
+        "HIDDEN_DIM = 30\n",
+        "N_EPOCHS = 300\n",
+        "\n",
+        "# Train your CBOW model here"
+      ],
+      "execution_count": 0,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "lE_aC7oJx2xC"
+      },
+      "source": [
+        "## Plot losses by epochs (x-axis: epoch, y-axis: loss)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "xdAEHlvX14Ur",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "# Insert your code here to plot losses vs epoch"
+      ],
+      "execution_count": 0,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "GWj-u7YJFxF7"
+      },
+      "source": [
+        "## Print five most similar words with the word \"delicious\""
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "colab_type": "text",
+        "id": "vvxTFjD7GCDc"
+      },
+      "source": [
+        "The whole point of traiing an embedding model is to get an embedding vector for each word. The idea is that the vector somehow captures the meaning of the word. This is useful because data scientists often face scenarios where they must derive meaning from unstructured text data.\n",
+        "\n",
+        "Once your model has been trained, you can access the embedding vectors through `model.embedding.weight.data`. You can convert these vectors to a numpy matrix or numpy arrays if needed.\n",
+        "\n",
+        "Find the five most similar words with the word \"delicious\" by calculating cosine similarity between the embedding vector of \"delicious\" and the embedding vectors of all other words in the vocabulary. \n",
+        "\n",
+        "Hint: cosine similarity is a common metric so you should be able to find one that you can use in an existing library. "
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "rS5bfhBW14U_",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "# Insert your code here"
+      ],
+      "execution_count": 0,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "UJrmuZEE5ETn",
+        "colab_type": "text"
+      },
+      "source": [
+        "While the model learns embedding vectors (that best predict the focal word from its contexts), the vectors that it learns don't seem to truly capture the meaning of words. However, this is mainly due to the small size of our training data. Google trained a word2vec model based on large-scale data (about 100 billion words), and this model captures similarity between words well. You can find the pretrained model at https://code.google.com/archive/p/word2vec/."
+      ]
+    }
+  ]
+}
